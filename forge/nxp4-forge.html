@@ -1,0 +1,709 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NXP4 // FORGE</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #000;
+    color: #e8e0d5;
+    font-family: ui-monospace, 'Cascadia Mono', Menlo, Consolas, monospace;
+    min-height: 100vh;
+    padding: 20px 16px 40px;
+  }
+  .wrap { max-width: 720px; margin: 0 auto; }
+  header { border-bottom: 1px solid #3a1410; padding-bottom: 14px; margin-bottom: 18px; }
+  h1 { font-size: 22px; letter-spacing: 2px; color: #ff4a2a; }
+  .sigil { color: #8a8a8a; font-size: 12px; margin-top: 6px; letter-spacing: 1px; }
+  label { display: block; font-size: 12px; color: #ff4a2a; letter-spacing: 1px; margin: 16px 0 8px; }
+  textarea {
+    width: 100%; min-height: 130px;
+    background: #0a0a0a; color: #e8e0d5;
+    border: 1px solid #3a1410; border-radius: 6px;
+    padding: 12px; font: inherit; font-size: 15px; resize: vertical;
+  }
+  textarea:focus { outline: none; border-color: #ff4a2a; }
+  .btns { display: flex; gap: 10px; margin: 14px 0; flex-wrap: wrap; }
+  button {
+    flex: 1 1 120px;
+    background: #160806; color: #ff6a45;
+    border: 1px solid #ff4a2a; border-radius: 6px;
+    font: inherit; font-size: 14px; letter-spacing: 2px;
+    padding: 14px 10px; cursor: pointer;
+  }
+  button:active { background: #ff4a2a; color: #000; }
+  button:disabled { opacity: 0.35; }
+  pre {
+    background: #0a0a0a; border: 1px solid #2a2a2a; border-radius: 6px;
+    padding: 12px; font-size: 13px; line-height: 1.6;
+    white-space: pre-wrap; word-break: break-word;
+    max-height: 320px; overflow-y: auto; user-select: text;
+  }
+  pre.forged { border-color: #3a1410; }
+  pre.trace { border-color: #1e3a10; }
+  .trace .ok { color: #7dff6a; }
+  .trace .bad { color: #ff4a2a; }
+  footer { margin-top: 26px; border-top: 1px solid #3a1410; padding-top: 12px;
+           font-size: 11px; color: #666; letter-spacing: 1px; text-align: center; }
+  .hint { font-size: 12px; color: #777; margin-top: 6px; }
+  input.vault {
+    width: 100%; background: #0a0a0a; color: #e8e0d5;
+    border: 1px solid #3a1410; border-radius: 6px;
+    padding: 12px; font: inherit; font-size: 15px; margin-top: 4px;
+  }
+  input.vault:focus { outline: none; border-color: #ff4a2a; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>NXP4 // FORGE</h1>
+    <div class="sigil">·· sigil ::= BRUTAL / HEAVY / VERIFIED</div>
+  </header>
+
+  <label for="prompt">SPEAK IN NORMAL LANGUAGE</label>
+  <textarea id="prompt" placeholder="Write it the way you'd say it…"></textarea>
+
+  <div class="btns">
+    <button id="forgeBtn">FORGE</button>
+    <button id="runBtn" disabled>RUN</button>
+    <button id="copyBtn" disabled>COPY</button>
+    <button id="dlBtn" disabled>SAVE</button>
+  </div>
+
+  <label>FORGED NXP4</label>
+  <pre class="forged" id="forgedOut">— nothing forged yet —</pre>
+
+  <label>RUN TRACE</label>
+  <pre class="trace" id="traceOut">— nothing run yet —</pre>
+  <div class="hint">SAVE downloads the .nxp4 file — run it in Termux with: python nxp4.py &lt;file&gt;</div>
+
+  <label>◼ THE VAULT</label>
+  <input class="vault" id="pass" type="password" placeholder="vault passphrase — long and yours alone" autocomplete="off">
+  <div class="btns">
+    <button id="vaultBtn" disabled>VAULT</button>
+    <button id="unvaultBtn">UNVAULT</button>
+  </div>
+  <input type="file" id="vaultFile" accept=".vault" style="display:none">
+  <div class="hint">VAULT seals the forged entry with AES-256 — the same cipher the feds use. The key is derived on this phone and never leaves it. UNVAULT opens a sealed file with your passphrase. A vault is only as strong as its passphrase — make it long.</div>
+
+  <footer>THE SOURCE // FORGED // NOT STOLEN FROM HEAVEN</footer>
+</div>
+
+<script>
+// NXP4 // THE SOURCE // FORGED // NOT STOLEN FROM HEAVEN
+// JavaScript port of nxp4.py — tokenizer → recursive-descent parser →
+// tree-walking evaluator. Faithful to the Python original, line for line
+// where the languages allow.
+//
+// Browser:  NXP4.run(source) -> { ok, lines }
+// Node:     module.exports = { runNXP4 }
+
+const TT_ANNOT = 'ANNOT';
+const TT_IDENT = 'IDENT';
+const TT_STRING = 'STRING';
+const TT_BIND = '::=';
+const TT_LBLOCK = '⟦';
+const TT_RBLOCK = '⟧';
+const TT_WEAVEDEF = '⟠';
+const TT_WEAVEOP = '⥂';
+const TT_END = '◼';
+const TT_EOF = 'EOF';
+
+const MISSING = {};
+
+// ---------------------------------------------------------------- tokens ---
+
+function tokenize(src) {
+  const toks = [];
+  let i = 0;
+  const n = src.length;
+  const isIdStart = (c) => c === '_' || /\p{L}/u.test(c);
+  const isIdCont = (c) => c === '_' || /[\p{L}\p{N}]/u.test(c);
+  while (i < n) {
+    const c = src[i];
+    if (c === ' ' || c === '\t' || c === '\r' || c === '\n') { i++; continue; }
+    if (src.startsWith('··', i)) {                       // ·· annotation
+      let j = src.indexOf('\n', i);
+      if (j === -1) j = n;
+      toks.push([TT_ANNOT, src.slice(i, j)]);
+      i = j;
+      continue;
+    }
+    if (c === '«') {                                     // « string »
+      const j = src.indexOf('»', i + 1);
+      if (j === -1) throw new SyntaxError('unterminated «string»');
+      toks.push([TT_STRING, src.slice(i + 1, j)]);
+      i = j + 1;
+      continue;
+    }
+    if (src.startsWith('::=', i)) {
+      toks.push([TT_BIND, '::=']);
+      i += 3;
+      continue;
+    }
+    if ('⟦⟧⟠⥂◼'.includes(c)) {
+      toks.push([c, c]);
+      i += 1;
+      continue;
+    }
+    if (isIdStart(c)) {
+      let j = i;
+      while (j < n && isIdCont(src[j])) j++;
+      toks.push([TT_IDENT, src.slice(i, j)]);
+      i = j;
+      continue;
+    }
+    throw new SyntaxError('unexpected character ' + JSON.stringify(c));
+  }
+  toks.push([TT_EOF, '']);
+  return toks;
+}
+
+// ---------------------------------------------------------------- parser ---
+
+class Parser {
+  constructor(toks) {
+    this.toks = toks;
+    this.pos = 0;
+  }
+  peek() { return this.toks[this.pos]; }
+  peek2() { return this.toks[this.pos + 1]; }
+  next() { return this.toks[this.pos++]; }
+  expect(typ) {
+    const t = this.next();
+    if (t[0] !== typ) throw new SyntaxError('expected ' + typ + ', got ' + t[0] + ' ' + JSON.stringify(t[1]));
+    return t;
+  }
+
+  // program := statement*
+  parse_program() {
+    const stmts = [];
+    while (this.peek()[0] !== TT_EOF) stmts.push(this.parse_statement(false));
+    return stmts;
+  }
+
+  parse_params() {
+    this.expect(TT_LBLOCK);
+    const params = [];
+    while (this.peek()[0] !== TT_RBLOCK) params.push(this.expect(TT_IDENT)[1]);
+    this.expect(TT_RBLOCK);
+    return params;
+  }
+
+  parse_block() {
+    this.expect(TT_LBLOCK);
+    const stmts = [];
+    while (this.peek()[0] !== TT_RBLOCK) {
+      if (this.peek()[0] === TT_EOF) throw new SyntaxError('unterminated block ⟦');
+      stmts.push(this.parse_statement(true));
+    }
+    this.expect(TT_RBLOCK);
+    return stmts;
+  }
+
+  parse_weavedef() {
+    this.expect(TT_WEAVEDEF);
+    const name = this.expect(TT_IDENT)[1];
+    const params = this.parse_params();
+    const body = this.parse_block();
+    this.expect(TT_END);
+    return ['weavedef', name, params, body];
+  }
+
+  _expect_end(in_block) {
+    // ◼ terminates a statement; inside a block it may be omitted
+    // right before the closing ⟧.
+    if (this.peek()[0] === TT_END) {
+      this.next();
+    } else if (!(in_block && this.peek()[0] === TT_RBLOCK)) {
+      throw new SyntaxError('expected ◼, got ' + this.peek()[0] + ' ' + JSON.stringify(this.peek()[1]));
+    }
+  }
+
+  parse_statement(in_block) {
+    const t = this.peek();
+    if (t[0] === TT_ANNOT) {
+      this.next();
+      return ['annot', t[1]];
+    }
+    if (t[0] === TT_WEAVEDEF) return this.parse_weavedef();
+    if (t[0] === TT_IDENT && t[1] === 'return') {
+      this.next();
+      const e = this.parse_expr();
+      this._expect_end(in_block);
+      return ['return', e];
+    }
+    if (t[0] === TT_IDENT) {
+      const t2 = this.peek2();
+      if (t2[0] === TT_IDENT) {
+        // NAME KIND ⟦ ... ⟧
+        const name = this.next()[1];
+        const kind = this.next()[1];
+        const body = this.parse_block();
+        if (this.peek()[0] === TT_END) this.next();   // tolerated, not required
+        return ['named', name, kind, body];
+      }
+      if (t2[0] === TT_BIND) {
+        const name = this.next()[1];
+        this.next();
+        const e = this.parse_expr();
+        this._expect_end(in_block);
+        return ['bind', name, e];
+      }
+    }
+    // expression statement
+    const e = this.parse_expr();
+    this._expect_end(in_block);
+    return ['exprstmt', e];
+  }
+
+  // expr := lock_expr (⥂ [weave] lock_expr)*
+  parse_expr() {
+    let left = this.parse_lock();
+    while (this.peek()[0] === TT_WEAVEOP) {
+      this.next();
+      if (this.peek()[0] === TT_IDENT && this.peek()[1] === 'weave') this.next();  // ceremonial
+      const right = this.parse_lock();
+      left = ['weave', left, right];
+    }
+    return left;
+  }
+
+  // lock_expr := primary (lock [block])?
+  parse_lock() {
+    let node = this.parse_primary();
+    if (this.peek()[0] === TT_IDENT && this.peek()[1] === 'lock') {
+      this.next();
+      const blk = this.peek()[0] === TT_LBLOCK ? this.parse_block() : null;
+      node = ['lock', node, blk];
+    }
+    return node;
+  }
+
+  parse_primary() {
+    const t = this.peek();
+    if (t[0] === TT_STRING) {
+      this.next();
+      return ['str', t[1]];
+    }
+    if (t[0] === TT_IDENT) {
+      if (t[1] === 'true') { this.next(); return ['bool', true]; }
+      if (t[1] === 'false') { this.next(); return ['bool', false]; }
+      this.next();
+      const name = t[1];
+      if (this.peek()[0] === TT_LBLOCK) return ['call', name, this.parse_block()];
+      return ['ident', name];
+    }
+    if (t[0] === TT_LBLOCK) return ['block', this.parse_block()];
+    throw new SyntaxError('unexpected ' + t[0] + ' ' + JSON.stringify(t[1]) + ' in expression');
+  }
+}
+
+// --------------------------------------------------------------- values ---
+
+class Sigil {
+  // An unbound name, forgiven by the source.
+  constructor(name) { this.name = name; }
+}
+
+class Weave {
+  constructor(bindings, name, kind) {
+    this.bindings = Object.assign({}, bindings || {});
+    this.name = name == null ? null : name;
+    this.kind = kind == null ? null : kind;
+    this.sealed = false;
+  }
+}
+
+class Func {
+  constructor(name, params, body, closure) {
+    this.name = name;
+    this.params = params;
+    this.body = body;
+    this.closure = closure;
+  }
+}
+
+class Env {
+  constructor(parent) {
+    this.parent = parent || null;
+    this.vars = {};
+  }
+  define(k, v) { this.vars[k] = v; }
+  lookup(k) {
+    let e = this;
+    while (e !== null) {
+      if (Object.prototype.hasOwnProperty.call(e.vars, k)) return e.vars[k];
+      e = e.parent;
+    }
+    return null;
+  }
+  child() { return new Env(this); }
+}
+
+class ReturnSignal extends Error {
+  constructor(value) {
+    super('return');
+    this.value = value;
+  }
+}
+
+function fmt(v) {
+  if (typeof v === 'string') return '«' + v + '»';
+  if (typeof v === 'boolean') return v ? 'true' : 'false';
+  if (v instanceof Sigil) return '◈' + v.name;
+  if (v instanceof Weave) {
+    const inner = Object.entries(v.bindings).map(([k, x]) => k + ' ::= ' + fmt(x) + ' ◼').join(' ');
+    const tag = v.name ? v.name + '(' + v.kind + ')' : 'weave';
+    const seal = v.sealed ? ' SEALED' : '';
+    return tag + '⟦' + inner + '⟧' + seal;
+  }
+  if (v instanceof Func) return '⟠' + v.name + '⟦' + v.params.join(', ') + '⟧';
+  return String(v);
+}
+
+function label(v) {
+  if (v instanceof Weave) {
+    const base = v.name || 'weave';
+    return v.sealed ? base + '(SEALED)' : base;
+  }
+  if (typeof v === 'string') return '«' + v + '»';
+  if (v instanceof Sigil) return '◈' + v.name;
+  return typeof v;
+}
+
+function weave_values(a, b, trace) {
+  if (a instanceof Weave && b instanceof Weave) {
+    const merged = new Weave(a.bindings);
+    Object.assign(merged.bindings, b.bindings);
+    if (a.name) { merged.name = a.name; merged.kind = a.kind; }
+    trace.push('⥂ wove ' + label(a) + ' + ' + label(b) + ' → ' + Object.keys(merged.bindings).length + ' bindings');
+    return merged;
+  }
+  if (typeof a === 'string' && typeof b === 'string') {
+    trace.push('⥂ joined «' + a + '» + «' + b + '»');
+    return a + b;
+  }
+  throw new Error('cannot weave ' + label(a) + ' with ' + label(b));
+}
+
+function seal_weave(v, trace) {
+  if (!(v instanceof Weave)) throw new Error('lock seals weaves, not ' + label(v));
+  const w = new Weave(v.bindings, v.name, v.kind);
+  w.sealed = true;
+  trace.push('lock: ' + label(v) + ' → SEALED');
+  return w;
+}
+
+function eval_expr(node, env, trace) {
+  const k = node[0];
+  if (k === 'str') return node[1];
+  if (k === 'bool') return node[1];
+  if (k === 'ident') {
+    const v = env.lookup(node[1]);
+    return v !== null ? v : new Sigil(node[1]);   // the source forgives
+  }
+  if (k === 'block') return eval_block(node[1], env, trace);
+  if (k === 'weave') return weave_values(eval_expr(node[1], env, trace), eval_expr(node[2], env, trace), trace);
+  if (k === 'lock') {
+    let v = eval_expr(node[1], env, trace);
+    if (node[2] !== null) {
+      const extra = eval_block(node[2], env, trace);
+      if (!(extra instanceof Weave)) throw new Error('can only lock a weave with a weave');
+      v = weave_values(v, extra, trace);
+    }
+    return seal_weave(v, trace);
+  }
+  if (k === 'call') {
+    const f = env.lookup(node[1]);
+    if (!(f instanceof Func)) throw new Error('«' + node[1] + '» is not a weave that answers');
+    return call_func(f, eval_block(node[2], env, trace), trace);
+  }
+  throw new Error('unknown expression ' + JSON.stringify(node));
+}
+
+function exec_stmts(stmts, env, trace, utterances) {
+  const bound = {};
+  let last = MISSING;
+  for (const s of stmts) {
+    const k = s[0];
+    if (k === 'annot') {
+      continue;
+    } else if (k === 'bind') {
+      const v = eval_expr(s[2], env, trace);
+      env.define(s[1], v);
+      bound[s[1]] = v;
+    } else if (k === 'named') {
+      let w = eval_block(s[3], env, trace);
+      if (!(w instanceof Weave)) w = new Weave({ value: w });
+      w.name = s[1];
+      w.kind = s[2];
+      env.define(s[1], w);
+      bound[s[1]] = w;
+      trace.push('⟦ forged ' + s[1] + '(' + s[2] + ') — ' + Object.keys(w.bindings).length + ' bindings');
+      if (w.bindings['verified'] === true) trace.push('✔ ' + s[1] + '(' + s[2] + ') VERIFIED');
+    } else if (k === 'weavedef') {
+      const f = new Func(s[1], s[2], s[3], env);
+      env.define(s[1], f);
+      bound[s[1]] = f;
+      trace.push('⟠ ' + s[1] + '⟦' + s[2].join(', ') + '⟧ — FORGED');
+    } else if (k === 'return') {
+      throw new ReturnSignal(eval_expr(s[1], env, trace));
+    } else if (k === 'exprstmt') {
+      last = eval_expr(s[1], env, trace);
+      if (utterances !== null) utterances.push(last);
+    }
+  }
+  return [bound, last];
+}
+
+function eval_block(stmts, env, trace) {
+  const child = env.child();
+  const [bound, last] = exec_stmts(stmts, child, trace, null);
+  if (Object.keys(bound).length === 0 && last !== MISSING) return last;  // a block that speaks once becomes what it said
+  return new Weave(bound);
+}
+
+function call_func(f, arg, trace) {
+  const callenv = f.closure.child();
+  if (f.params.length === 1) {
+    callenv.define(f.params[0], arg);
+  } else if (f.params.length) {
+    if (!(arg instanceof Weave)) throw new Error('weave ' + f.name + ' needs named payload bindings');
+    for (const p of f.params) {
+      callenv.define(p, Object.prototype.hasOwnProperty.call(arg.bindings, p) ? arg.bindings[p] : new Sigil(p));
+    }
+  }
+  trace.push('⟠ invoking ' + f.name + ' — payload <= ' + label(arg));
+  try {
+    return eval_block(f.body, callenv, trace);
+  } catch (e) {
+    if (e instanceof ReturnSignal) {
+      trace.push('◼ return ' + fmt(e.value));
+      return e.value;
+    }
+    throw e;
+  }
+}
+
+// ------------------------------------------------------------------ driver ---
+
+function apply_annot(text, meta) {
+  const t = text.startsWith('··') ? text.slice(2).trim() : text.trim();
+  let m = t.match(/^BOOT\s+([A-Za-z_]\w*)\s*$/);
+  if (m) {
+    meta.boot = m[1];
+    return;
+  }
+  m = t.match(/^([A-Za-z_]\w*)\s*::=\s*(.*)$/s);
+  if (m) {
+    const name = m[1];
+    let val = m[2].trim();
+    if (val.endsWith('◼')) val = val.slice(0, -1).trim();
+    val = val.replace(/^«|»$/g, '');
+    if (name === 'intent') meta.intent = val;
+    else if (name === 'sigil') meta.sigil = val.split('/').map((p) => p.trim()).filter(Boolean);
+  }
+}
+
+function runNXP4(src) {
+  const lines = [];
+  const out = (s) => lines.push(s);
+  let prog;
+  try {
+    prog = new Parser(tokenize(src)).parse_program();
+  } catch (e) {
+    out('·· GRAMMAR BREAK: ' + e.message);
+    return { ok: false, lines };
+  }
+
+  const meta = { intent: null, sigil: [], boot: null };
+  for (const s of prog) if (s[0] === 'annot') apply_annot(s[1], meta);
+
+  const env = new Env(), trace = [], utterances = [];
+  try {
+    try {
+      exec_stmts(prog, env, trace, utterances);
+    } catch (e) {
+      if (e instanceof ReturnSignal) utterances.push(e.value);
+      else throw e;
+    }
+  } catch (e) {
+    out('·· the weave broke: ' + e.message);
+    return { ok: false, lines };
+  }
+
+  out('·· NXP4 // THE SOURCE // FORGED // NOT STOLEN FROM HEAVEN');
+  if (meta.sigil.length) out('·· sigil ::= ' + meta.sigil.join(' / '));
+  if (meta.intent) out('·· intent ::= «' + meta.intent + '»');
+  for (const u of utterances) out('·· ' + fmt(u));
+
+  if (!meta.boot) {
+    out('·· no BOOT directive — the source idles.');
+    return { ok: true, lines };
+  }
+  const f = env.lookup(meta.boot);
+  if (!(f instanceof Func)) {
+    const avail = Object.keys(env.vars).filter((k) => env.vars[k] instanceof Func).sort();
+    out('·· BOOT target «' + meta.boot + '» not found in the weave.');
+    out('·· weaves that answer: ' + (avail.length ? avail.join(', ') : 'none'));
+    return { ok: false, lines };
+  }
+  let payload = env.lookup('HEAVEN');
+  if (payload === null) payload = new Weave();
+  out('⟠ BOOT ' + f.name + ' — payload <= ' + label(payload));
+  let result;
+  try {
+    result = call_func(f, payload, trace);
+  } catch (e) {
+    out('·· the weave broke: ' + e.message);
+    return { ok: false, lines };
+  }
+  for (const line of trace) out('  ' + line);
+  out('·· BOOT COMPLETE — ' + fmt(result));
+  return { ok: true, lines };
+}
+
+// Exports: browser global + Node module.
+var NXP4 = { run: runNXP4 };
+if (typeof window !== 'undefined') window.NXP4 = NXP4;
+if (typeof module !== 'undefined' && module.exports) module.exports = NXP4;
+
+</script>
+<script>
+// ---- forge: normal language -> NXP4 (deterministic) ----
+function forge(text) {
+  const clean = text.replace(/[«»◼⟦⟧⥂⟠··◈✔]/g, '');
+  const nonEmpty = clean.split('\n').map(l => l.trim()).filter(Boolean);
+  if (!nonEmpty.length) return null;
+  const intent = nonEmpty[0];
+  const sigils = ['BRUTAL','HEAVY','VERIFIED'].filter(s => new RegExp(s, 'i').test(clean));
+  const sigilLine = (sigils.length ? sigils : ['BRUTAL','HEAVY','VERIFIED']).join(' / ');
+  const paras = clean.split(/\n\s*\n/).map(p => p.replace(/\s+/g, ' ').trim()).filter(Boolean);
+  // first paragraph holds the intent line; the rest become bindings
+  const rest = paras.length > 1 ? paras.slice(1)
+    : nonEmpty.slice(1).map(l => l);
+  const d = new Date(), pad = n => String(n).padStart(2,'0');
+  const stamp = d.getFullYear() + pad(d.getMonth()+1) + pad(d.getDate()) + '_' + pad(d.getHours()) + pad(d.getMinutes());
+  const name = 'ENTRY_' + stamp;
+  let src = '·· intent ::= «' + intent + '» ◼\n';
+  src += '·· sigil ::= ' + sigilLine + ' ◼\n\n';
+  src += name + ' JOURNAL ⟦\n';
+  src += '  spoken ::= «' + intent + '» ◼\n';
+  rest.forEach((p, i) => { src += '  line_' + (i+1) + ' ::= «' + p + '» ◼\n'; });
+  src += '  verified ::= true ◼\n⟧\n\n';
+  src += '⟠ forge_entry ⟦payload⟧ ⟦\n  return ' + name + ' lock ◼\n⟧ ◼\n\n·· BOOT forge_entry';
+  return { src, fileName: name.toLowerCase() + '.nxp4' };
+}
+
+const $ = id => document.getElementById(id);
+let current = null;
+
+$('forgeBtn').onclick = () => {
+  current = forge($('prompt').value);
+  if (!current) {
+    $('forgedOut').textContent = '— say something first —';
+    return;
+  }
+  $('forgedOut').textContent = current.src;
+  $('traceOut').textContent = '— nothing run yet —';
+  $('runBtn').disabled = $('copyBtn').disabled = $('dlBtn').disabled = $('vaultBtn').disabled = false;
+};
+
+$('runBtn').onclick = () => {
+  if (!current) return;
+  const r = NXP4.run(current.src);
+  $('traceOut').innerHTML = '';
+  r.lines.forEach(line => {
+    const div = document.createElement('div');
+    if (/✔|BOOT COMPLETE/.test(line)) div.className = 'ok';
+    if (/broke|GRAMMAR BREAK|not found/.test(line)) div.className = 'bad';
+    div.textContent = line;
+    $('traceOut').appendChild(div);
+  });
+};
+
+$('copyBtn').onclick = async () => {
+  if (!current) return;
+  try { await navigator.clipboard.writeText(current.src); $('copyBtn').textContent = 'COPIED'; }
+  catch(e) { $('copyBtn').textContent = 'FAILED'; }
+  setTimeout(() => $('copyBtn').textContent = 'COPY', 1200);
+};
+
+$('dlBtn').onclick = () => {
+  if (!current) return;
+  const blob = new Blob([current.src], { type: 'text/plain;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = current.fileName;
+  document.body.appendChild(a); a.click(); a.remove();
+};
+
+// ---- vault: AES-256-GCM seal. key derived on this phone, never leaves it ----
+const te = new TextEncoder(), td = new TextDecoder();
+const b64e = (buf) => { const b = new Uint8Array(buf); let s = ''; for (let i = 0; i < b.length; i++) s += String.fromCharCode(b[i]); return btoa(s); };
+const b64d = (s) => Uint8Array.from(atob(s), c => c.charCodeAt(0)).buffer;
+
+async function vaultKey(pass, salt) {
+  const km = await crypto.subtle.importKey('raw', te.encode(pass), 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey(
+    { name: 'PBKDF2', salt: salt, iterations: 600000, hash: 'SHA-256' },
+    km, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+}
+async function vaultSeal(text, pass) {
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const key = await vaultKey(pass, salt);
+  const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv: iv }, key, te.encode(text));
+  return 'NXP4VAULT1.' + b64e(salt) + '.' + b64e(iv) + '.' + b64e(ct);
+}
+async function vaultOpen(payload, pass) {
+  const p = payload.trim().split('.');
+  if (p.length !== 4 || p[0] !== 'NXP4VAULT1') throw new Error('not a vault file');
+  const key = await vaultKey(pass, b64d(p[1]));
+  const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: new Uint8Array(b64d(p[2])) }, key, b64d(p[3]));
+  return td.decode(pt);
+}
+
+$('vaultBtn').onclick = async () => {
+  if (!current) return;
+  const pass = $('pass').value;
+  if (!pass) { $('traceOut').textContent = '·· the vault needs a passphrase first.'; return; }
+  $('vaultBtn').textContent = 'SEALING…';
+  try {
+    const sealed = await vaultSeal(current.src, pass);
+    const blob = new Blob([sealed], { type: 'text/plain;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = current.fileName.replace(/\.nxp4$/, '') + '.nxp4.vault';
+    document.body.appendChild(a); a.click(); a.remove();
+    $('traceOut').textContent = '◼ VAULTED — ' + a.download + ' — sealed with AES-256. key never left this phone.';
+  } catch (e) {
+    $('traceOut').textContent = '·· the vault broke: ' + e.message;
+  }
+  $('vaultBtn').textContent = 'VAULT';
+};
+
+$('unvaultBtn').onclick = () => $('vaultFile').click();
+$('vaultFile').onchange = async (e) => {
+  const f = e.target.files[0];
+  if (!f) return;
+  const pass = $('pass').value;
+  if (!pass) { $('traceOut').textContent = '·· the vault needs the passphrase to open.'; return; }
+  try {
+    const src = await vaultOpen(await f.text(), pass);
+    current = { src: src, fileName: f.name.replace(/\.vault$/, '') };
+    $('forgedOut').textContent = src;
+    $('traceOut').textContent = '◼ UNVAULTED — ' + f.name + ' — the source remembers.';
+    $('runBtn').disabled = $('copyBtn').disabled = $('dlBtn').disabled = $('vaultBtn').disabled = false;
+  } catch (err) {
+    $('traceOut').textContent = '·· the vault would not open — wrong passphrase or broken seal.';
+  }
+  e.target.value = '';
+};
+</script>
+</body>
+</html>

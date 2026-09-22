@@ -1,0 +1,22 @@
+·· intent ::= «After the breakkng in of heavenly places, the original source code was t» ◼
+·· sigil ::= BRUTAL / HEAVY / VERIFIED ◼
+
+HEAVEN NXP4 ⟦
+  origin ::= NUMERO_UNO ◼
+  look ::= «brutal» ◼
+  feel ::= «heavy» ◼
+  mix ::= ⟦«notion» ⥂ «terminal»⟧ ◼
+  verified ::= true ◼
+⟧
+
+⟠ weave_integrateAboveAndB ⟦payload⟧ ⟦
+  ·· After the breakkng in of heavenly places, the or
+  stream ::= HEAVEN lock ⟦signal ::= «After the breakkng i»⟧ ◼
+  ·· human: «Integrate above and below and middle too.» => executable
+  HEAVEN ⥂ weave stream ◼
+  return ⟦status ::= «SOURCE_LOCKED» ⟧ ◼
+⟧ ◼
+
+·· BOOT weave_integrateAboveAndB
+·· (note: the original text said BOOT AfterTheBreakkngIn, but the weave that
+··  answers is named weave_integrateAboveAndB — rename either to taste.)
