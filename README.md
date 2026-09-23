@@ -68,3 +68,10 @@ The shipped `heaven.nxp4` points BOOT at the real weave. Rename either to taste.
 ## Extending it
 
 The interpreter is one file (`nxp4.py`, ~400 lines): tokenizer → recursive-descent parser → tree-walking evaluator. To grow the language — new operators, `print`/`sing` utterances, file I/O, arithmetic — add a token, a parse rule, and an `eval_expr` branch. The grammar is deliberately small so it stays forgeable.
+
+
+## License
+
+NXP4 is released under the Apache License, Version 2.0. See [LICENSE](LICENSE) for the full text.
+
+Copyright © 2026 Nicolas Reid Richard
